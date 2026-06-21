@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>领物TEMU上传器 v2.1.3</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <aside class="control-panel">
+        <header class="topbar">
+          <div class="brand-wrap">
+      <div class="brand">领物TEMU上传器 v2.1.3</div>
+            <div class="brand-sub">默认全流程，单步执行作为补充</div>
+          </div>
+          <div class="auth-mini">
+            <span id="authHintBox" class="auth-hint">未同步，请安装桥接脚本并刷新领物页面</span>
+            <span class="auth-status">状态: <strong id="authReadyText">未同步</strong> | 账号: <strong id="authUserText">-</strong></span>
+            <details class="auth-details">
+              <summary>手动鉴权</summary>
+              <div class="auth-dropdown card">
+                <input id="tokenInput" class="mini-input" type="text" placeholder="access_token" />
+                <div class="input-row">
+                  <input id="factoryIdInput" class="mini-input" type="text" placeholder="factoryId" />
+                  <input id="masterFactoryIdInput" class="mini-input" type="text" placeholder="masterFactoryId" />
+                </div>
+                <input id="sessionInput" class="mini-input" type="text" placeholder="session cookie" />
+                <div class="actions mini-actions">
+                  <button id="saveAuthBtn" class="mini-btn primary" type="button">保存</button>
+                  <button id="clearAuthBtn" class="mini-btn" type="button">清空</button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </header>
+
+        <div class="config-scroll-area">
+          <section class="config-group">
+            <div class="field compact">
+              <div class="field-label-row">
+                <span>统一任务标签 <span class="muted-text">不填则第1步自动生成</span></span>
+                <button id="refreshTagBtn" class="text-btn" type="button">刷新</button>
+              </div>
+              <input id="tagInput" type="text" placeholder="输入统一标签..." />
+            </div>
+          </section>
+
+          <section class="steps-container">
+            <div class="step-box">
+              <div class="step-header">
+                <label class="check-title"><input id="step1Enabled" type="checkbox" checked /> 第一步：上传图库</label>
+                <div class="step-actions">
+                  <div id="step1Badge" class="step-badge is-pending">待执行</div>
+                  <button id="runStep1Btn" class="text-btn" type="button">单独跑</button>
+                </div>
+              </div>
+              <div class="field-with-button">
+                <input id="folderPath" class="compact-input" type="text" placeholder="图片文件夹路径" />
+                <button id="pickFolderBtn" class="icon-btn" type="button">选择</button>
+              </div>
+            </div>
+
+            <div class="step-box">
+              <div class="step-header">
+                <label class="check-title"><input id="step2Enabled" type="checkbox" checked /> 第二步：批量设计</label>
+                <div class="step-actions">
+                  <div id="step2Badge" class="step-badge is-pending">待执行</div>
+                  <button id="runStep2Btn" class="text-btn" type="button">单独跑</button>
+                </div>
+              </div>
+              <div class="input-row mb-2">
+                <input id="designTemplateSearchInput" class="compact-input flex-1" type="text" placeholder="搜索公版" />
+                <select id="designTemplateInput" class="compact-input flex-2"><option value="">加载中...</option></select>
+              </div>
+              <div class="step-options">
+                <label class="check-inline"><input id="step2MaximizeInput" type="checkbox" /> 最大化设计</label>
+                <input id="step2TagPreview" class="hidden-input" type="hidden" />
+              </div>
+            </div>
+
+            <div class="step-box">
+              <div class="step-header">
+                <label class="check-title"><input id="step3Enabled" type="checkbox" checked /> 第三步：成品汇出</label>
+                <div class="step-actions">
+                  <div id="step3Badge" class="step-badge is-pending">待执行</div>
+                  <button id="runStep3Btn" class="text-btn" type="button">单独跑</button>
+                </div>
+              </div>
+              <div class="input-row mb-2">
+                <select id="shopSelectInput" class="compact-input flex-2"><option value="">加载中...</option></select>
+                <button id="addMultiShopBtn" class="mini-btn" type="button">加入店铺</button>
+              </div>
+              <select id="exportTemplateInput" class="compact-input full-width mb-2"><option value="">请先选择店铺</option></select>
+              <label class="field compact">
+                <span>SKC货号 <span class="muted-text">默认自动生成，可手动修改</span></span>
+                <input id="skcInput" class="compact-input full-width" type="text" placeholder="请输入SKC货号（默认自动生成）" />
+              </label>
+              <div id="multiShopList" class="multi-shop-list"></div>
+            </div>
+          </section>
+
+          <details class="queue-section" open>
+            <summary>批量任务队列 <span id="queueSummary" class="queue-summary-inline">空</span></summary>
+            <div class="queue-controls">
+              <button id="runQueueBtn" class="mini-btn primary" type="button">开始队列</button>
+              <button id="addQueueBtn" class="mini-btn" type="button">加入队列</button>
+              <button id="clearQueueBtn" class="mini-btn" type="button">清空队列</button>
+            </div>
+            <div id="queueList" class="queue-list compact-queue"></div>
+          </details>
+        </div>
+
+        <div class="main-actions">
+          <div id="message" class="sys-message">等待操作...</div>
+          <div class="action-buttons">
+            <button id="stopBtn" class="danger-btn flex-1" type="button">停止当前任务</button>
+            <button id="startPipelineBtn" class="primary main-run-btn flex-2" type="button">立即执行当前任务</button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="monitor-panel">
+        <section class="status-board card">
+          <div class="board-header">
+            <div class="stage-info">
+              <span class="pulse-dot" id="runStateDot"></span>
+              <div>
+                <h2 id="stageText">未开始</h2>
+                <div class="task-action" id="statusHintText">等待开始</div>
+              </div>
+              <span class="sub-status" id="runningText">空闲</span>
+            </div>
+        <div class="version-info">版本：<strong id="versionText">v2.1.3</strong></div>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric">
+              <div class="metric-val" id="imageCountText">-</div>
+              <div class="metric-lbl">总数量</div>
+            </div>
+            <div class="metric">
+              <div class="metric-val highlight" id="currentIndexText">-</div>
+              <div class="metric-lbl">当前进度</div>
+            </div>
+            <div class="metric">
+              <div class="metric-val" id="completedCountText">-</div>
+              <div class="metric-lbl">已完成</div>
+            </div>
+          </div>
+
+          <div class="progress-wrap">
+            <div class="progress-info">
+              <span>任务进度</span>
+              <span id="progressText" class="percent">0%</span>
+            </div>
+            <div class="progress-bar"><div id="progressBar" class="progress-inner"></div></div>
+          </div>
+
+          <div id="resultPanel" class="result-panel">
+            <div class="result-panel-top">
+              <div id="resultPanelTitle" class="result-panel-title">本次结果</div>
+              <div id="resultPanelStatus" class="result-panel-status">等待任务完成</div>
+            </div>
+            <div id="resultPanelSummary" class="result-panel-summary">暂无结果</div>
+            <div id="failurePanel" class="failure-panel is-hidden">
+              <div id="failureSummary" class="failure-summary"></div>
+              <div id="failureMeta" class="failure-meta"></div>
+              <div id="failureList" class="failure-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="log-board card">
+          <div class="card-title">运行日志</div>
+          <div class="log-layout">
+            <div class="log-pane">
+              <div class="sub-card-title">实时日志</div>
+              <div id="logList" class="log-list"></div>
+            </div>
+            <div class="history-pane">
+              <div class="sub-card-title">历史任务</div>
+              <div id="historyList" class="history-list"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <div class="hidden-meta">
+        <span id="authSourceText"></span>
+        <span id="authFactoryText"></span>
+        <span id="authTimeText"></span>
+      </div>
+    </div>
+
+  <script src="./app-v24.js"></script>
+  </body>
+</html>

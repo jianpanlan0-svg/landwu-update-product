@@ -1,0 +1,62 @@
+{
+  "name": "uploader-v1",
+  "version": "2.1.3",
+  "private": true,
+  "description": "领物TEMU上传器",
+  "main": "electron-main.js",
+  "bin": "launcher-entry.js",
+  "scripts": {
+    "start": "node uploader-server-v1.js",
+    "start:electron": "electron .",
+    "step1:upload": "node step1-gallery-upload-api-v1.js",
+    "step2:design": "node step2-batch-design-api-v1.js",
+    "step3:export": "node step3-temu-export-api-v1.js",
+    "build:exe": "node build-release.js",
+    "build:mac": "electron-builder --mac dir --arm64",
+    "build:mac-package": "node build-mac-package.js"
+  },
+  "dependencies": {
+    "esdk-obs-nodejs": "^3.26.2"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "pkg": "^5.8.1"
+  },
+  "build": {
+    "appId": "com.landwu.temu.uploader",
+    "productName": "领物TEMU上传器",
+    "asar": true,
+    "directories": {
+      "output": "release-mac"
+    },
+    "files": [
+      "electron-main.js",
+      "uploader-server-v1.js",
+      "launcher-entry.js",
+      "step1-gallery-upload-api-v1.js",
+      "step2-batch-design-api-v1.js",
+      "step3-temu-export-api-v1.js",
+      "ui/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "category": "public.app-category.productivity"
+    }
+  },
+  "pkg": {
+    "assets": [
+      "ui/**/*"
+    ],
+    "scripts": [
+      "uploader-server-v1.js",
+      "step1-gallery-upload-api-v1.js",
+      "step2-batch-design-api-v1.js",
+      "step3-temu-export-api-v1.js"
+    ]
+  }
+}

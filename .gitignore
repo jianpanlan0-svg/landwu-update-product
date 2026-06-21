@@ -1,0 +1,16 @@
+node_modules/
+reports/
+dist/
+release-mac/
+领物自动上传工具EXE版本*/
+领物TEMU上传器EXE版本*/
+
+auth-state-v1.json
+obs-config.json
+debug.log
+*.log
+
+tmp-*.js
+
+.DS_Store
+Thumbs.db
