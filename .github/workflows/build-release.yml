@@ -1,0 +1,129 @@
+name: Build Release Artifacts
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate JavaScript
+        shell: pwsh
+        run: |
+          node --check uploader-server-v1.js
+          node --check step1-gallery-upload-api-v1.js
+          node --check step2-batch-design-api-v1.js
+          node --check step3-temu-export-api-v1.js
+          node --check ui/app-v24.js
+
+      - name: Build EXE
+        run: npm run build:exe
+
+      - name: Find EXE release directory
+        id: win_release
+        shell: pwsh
+        run: |
+          $dir = Get-ChildItem -Directory -Filter '领物TEMU上传器EXE版本V*' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $dir) { throw '未找到 Windows EXE 发布目录' }
+          "path=$($dir.FullName)" >> $env:GITHUB_OUTPUT
+          "name=$($dir.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.win_release.outputs.name }}
+          path: ${{ steps.win_release.outputs.path }}
+
+  build-mac:
+    name: Build Mac App
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate JavaScript
+        run: |
+          node --check uploader-server-v1.js
+          node --check step1-gallery-upload-api-v1.js
+          node --check step2-batch-design-api-v1.js
+          node --check step3-temu-export-api-v1.js
+          node --check ui/app-v24.js
+
+      - name: Build Mac app
+        run: npm run build:mac
+
+      - name: Package Mac app
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          APP_PATH=$(find release-mac -name '领物TEMU上传器.app' -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "未找到 Mac App"
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "领物TEMU上传器_Mac_APP_v${VERSION}.zip"
+
+      - name: Upload Mac artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 领物TEMU上传器_Mac_APP
+          path: 领物TEMU上传器_Mac_APP_v*.zip
+
+  github-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build-windows
+      - build-mac
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Zip Windows artifact
+        run: |
+          cd artifacts
+          for dir in 领物TEMU上传器EXE版本V*; do
+            [ -d "$dir" ] || continue
+            zip -r "${dir}.zip" "$dir"
+          done
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.zip

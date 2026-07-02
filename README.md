@@ -1,6 +1,6 @@
 # 领物TEMU上传器
 
-用于领物 TEMU 流程自动化：上传图库、批量设计、成品汇出。当前版本：`v2.1.4`。
+用于领物 TEMU 流程自动化：上传图库、批量设计、成品汇出。当前版本：`v2.1.5`。
 
 ## 功能
 
@@ -76,6 +76,12 @@ Mac 构建包：
 ```bash
 npm run build:mac-package
 ```
+
+GitHub 自动打包：
+
+- 推送到 `main` 后，会自动生成 Windows EXE 和 Mac Apple 芯片 `.app` 构建产物。
+- 在 GitHub 仓库的 `Actions` 页面打开最新工作流，从 `Artifacts` 下载。
+- 推送 `v*` 标签时，会自动创建 GitHub Release 并附带压缩包。
 
 ## 代码入口
 
