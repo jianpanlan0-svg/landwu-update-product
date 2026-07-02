@@ -83,6 +83,19 @@ GitHub 自动打包：
 - 在 GitHub 仓库的 `Actions` 页面打开最新工作流，从 `Artifacts` 下载。
 - 推送 `v*` 标签时，会自动创建 GitHub Release 并附带压缩包。
 
+正式发布：
+
+```bash
+git tag -a v2.1.5 -m "Release v2.1.5"
+git push origin v2.1.5
+```
+
+发布后必须确认：
+
+- `Actions` 里的 `Build Windows EXE`、`Build Mac App`、`Publish GitHub Release` 都是 `success`。
+- `Releases` 页面存在对应版本。
+- Release Assets 至少包含 Windows EXE 压缩包和 Mac APP 压缩包。
+
 ## 代码入口
 
 - 本地服务：`uploader-server-v1.js`

@@ -10,3 +10,4 @@
 - 三步核心脚本分别是 `step1-gallery-upload-api-v1.js`、`step2-batch-design-api-v1.js`、`step3-temu-export-api-v1.js`。
 - 修改网页脚本时如需保留历史版本，新文件名带版本号，并同步 `ui/index.html` 引用。
 - 提交前至少执行相关 `node --check`，并检查 `git status --ignored --short` 确认敏感文件未暂存。
+- 发布正式版本时先确认工作区干净，再推 `v*` 标签；只有 GitHub Actions 的 Windows、Mac、Release 三个任务都成功且 Release Assets 存在后，才能说该版本可交付。
