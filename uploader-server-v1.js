@@ -21,7 +21,7 @@ const REPORTS_DIR = path.join(RUNTIME_DIR, 'reports');
 
 const state = {
   appName: '领物TEMU上传器',
-  version: 'v2.1.3',
+  version: 'v2.1.4',
   running: false,
   stopRequested: false,
   currentTask: null,

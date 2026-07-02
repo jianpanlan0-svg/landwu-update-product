@@ -4,6 +4,8 @@ const ObsClient = require('esdk-obs-nodejs');
 
 const RUNTIME_DIR = process.env.LANDWU_RUNTIME_DIR || (process.pkg ? path.dirname(process.execPath) : __dirname);
 const OBS_CONFIG_FILE = path.join(RUNTIME_DIR, 'obs-config.json');
+const MAX_UPLOAD_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 1500;
 
 function loadObsSecretAccessKey() {
   const envValue = String(process.env.LANDWU_OBS_SECRET_ACCESS_KEY || '').trim();
@@ -63,6 +65,10 @@ function log(message, extra) {
     return;
   }
   console.log(`[STEP1-API] ${message}`, extra);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function ensureAuth(args) {
@@ -261,6 +267,47 @@ function uploadToObs(client, bucket, key, filePath, mimeType) {
   });
 }
 
+async function uploadOneFile(options) {
+  const { args, obsClient, obsInfo, apiBase, filePath, index, total, title, ext } = options;
+  const retryErrors = [];
+
+  for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
+    const fileKey = `${obsInfo.file_name}/${obsInfo.file_time}/${Date.now()}_${index + 1}_a${attempt}${ext}`;
+    const obsUrl = `/${fileKey}`;
+    const attemptText = attempt > 1 ? `（重试 ${attempt - 1}/${MAX_UPLOAD_ATTEMPTS - 1}）` : '';
+    log(`上传第 ${index + 1}/${total} 张${attemptText}`, { title, obsUrl, attempt });
+
+    try {
+      if (!args.dryRun) {
+        await requestJson('https://user.landwu.com/api/photo/jsLoadBefore', {}, args);
+        await uploadToObs(obsClient, obsInfo.bucket, fileKey, filePath, getMimeType(filePath));
+        await requestJson(new URL('photo/jsLoad', apiBase).toString(), {
+          title,
+          label: args.tag,
+          category_id: '',
+          category_name: '',
+          cur_index: index + 1,
+          obs_url: obsUrl,
+        }, args, false);
+      }
+      return { title, label: args.tag, obs_url: obsUrl, filePath, attempts: attempt, retryErrors };
+    } catch (error) {
+      const message = error.message || String(error);
+      retryErrors.push(message);
+      if (attempt < MAX_UPLOAD_ATTEMPTS) {
+        log(`上传失败，准备重试: ${title}`, { attempt, error: message });
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+      error.retryErrors = retryErrors;
+      error.attempts = attempt;
+      throw error;
+    }
+  }
+
+  throw new Error(`上传失败: ${title}`);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   ensureAuth(args);
@@ -288,30 +335,26 @@ async function main() {
     const ext = path.extname(filePath).toLowerCase();
     const title = path.basename(filePath, ext);
 
-    const fileKey = `${obsInfo.file_name}/${obsInfo.file_time}/${Date.now()}_${index + 1}${ext}`;
-    const obsUrl = `/${fileKey}`;
-    log(`上传第 ${index + 1}/${files.length} 张`, { title, obsUrl });
-
     try {
-      if (!args.dryRun) {
-        await requestJson('https://user.landwu.com/api/photo/jsLoadBefore', {}, args);
-        await uploadToObs(obsClient, obsInfo.bucket, fileKey, filePath, getMimeType(filePath));
-        await requestJson(new URL('photo/jsLoad', apiBase).toString(), {
-          title,
-          label: args.tag,
-          category_id: '',
-          category_name: '',
-          cur_index: index + 1,
-          obs_url: obsUrl,
-        }, args, false);
-      }
-      const item = { title, label: args.tag, obs_url: obsUrl, filePath };
+      const item = await uploadOneFile({
+        args,
+        obsClient,
+        obsInfo,
+        apiBase,
+        filePath,
+        index,
+        total: files.length,
+        title,
+        ext,
+      });
       successes.push(item);
     } catch (error) {
       const failure = {
         filePath,
         title,
         error: error.message || String(error),
+        attempts: error.attempts || MAX_UPLOAD_ATTEMPTS,
+        retryErrors: error.retryErrors || [error.message || String(error)],
         copiedTo: '',
         copyError: '',
       };
