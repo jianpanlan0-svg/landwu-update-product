@@ -36,7 +36,7 @@ jobs:
           node --check step1-gallery-upload-api-v1.js
           node --check step2-batch-design-api-v1.js
           node --check step3-temu-export-api-v1.js
-          node --check ui/app-v24.js
+          node --check ui/app-v25.js
 
       - name: Build EXE
         run: npm run build:exe
@@ -79,7 +79,7 @@ jobs:
           node --check step1-gallery-upload-api-v1.js
           node --check step2-batch-design-api-v1.js
           node --check step3-temu-export-api-v1.js
-          node --check ui/app-v24.js
+          node --check ui/app-v25.js
 
       - name: Build Mac app
         run: npm run build:mac

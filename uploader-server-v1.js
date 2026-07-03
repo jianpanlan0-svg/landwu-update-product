@@ -21,7 +21,7 @@ const REPORTS_DIR = path.join(RUNTIME_DIR, 'reports');
 
 const state = {
   appName: '领物TEMU上传器',
-  version: 'v2.1.5',
+  version: 'v2.1.6',
   running: false,
   stopRequested: false,
   currentTask: null,
@@ -415,7 +415,7 @@ function finishTaskSuccess(result, message = '任务完成') {
   log(message, result || null);
 }
 
-function finishTaskError(message) {
+function finishTaskError(message, result = null) {
   state.running = false;
   state.stopRequested = false;
   state.child = null;
@@ -424,6 +424,7 @@ function finishTaskError(message) {
     status: 'error',
     finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
     message,
+    ...(result ? { result } : {}),
   };
   log('任务失败', { message });
 }
@@ -957,10 +958,12 @@ async function startPipelineTask(task) {
 
   const orderedSteps = ['step1', 'step2', 'step3'].filter((item) => task.stepsSelected.includes(item));
   const stepCount = orderedSteps.length;
+  let activeStepName = '';
 
   try {
     for (let index = 0; index < orderedSteps.length; index += 1) {
       const stepName = orderedSteps[index];
+      activeStepName = stepName;
       const baseProgress = Math.floor((index / stepCount) * 100);
       const nextProgress = Math.floor(((index + 1) / stepCount) * 100);
 
@@ -1029,7 +1032,20 @@ async function startPipelineTask(task) {
       stopTask();
       return;
     }
-    finishTaskError(error.message || String(error));
+    const message = error.message || String(error);
+    if (activeStepName) {
+      stepResults[activeStepName] = buildFailedStepResult(activeStepName, task, reportFiles[activeStepName], message);
+      setTaskSteps({ ...state.currentTask.steps, [activeStepName]: 'failed' });
+    }
+    finishTaskError(message, {
+      ok: false,
+      tag: task.tag,
+      steps: task.stepsSelected,
+      failedStep: activeStepName,
+      reportFiles,
+      stepResults,
+      message,
+    });
   }
 }
 
@@ -1061,6 +1077,35 @@ function parseReportResult(reportFile) {
   } catch {
     return null;
   }
+}
+
+function buildFailedStepResult(stepName, task, reportFile, message) {
+  const parsed = parseReportResult(reportFile) || {};
+  const successCount = Number(parsed.successCount || 0);
+  const parsedFailureCount = Number(parsed.failureCount || 0);
+  const failureCount = Math.max(parsedFailureCount, 1);
+  const failures = Array.isArray(parsed.failures) && parsed.failures.length
+    ? parsed.failures
+    : [{ error: message }];
+
+  return {
+    ...parsed,
+    ok: false,
+    failed: true,
+    step: stepName,
+    tag: parsed.tag || task.tag || '',
+    shopName: parsed.shopName || task.shopName || '',
+    shopNames: Array.isArray(parsed.shopNames) && parsed.shopNames.length ? parsed.shopNames : (Array.isArray(task.shopNames) ? task.shopNames : []),
+    designTemplateName: parsed.designTemplateName || task.designTemplateName || '',
+    exportTemplateName: parsed.exportTemplateName || task.exportTemplateName || '',
+    successCount,
+    failureCount,
+    totalCount: Math.max(Number(parsed.totalCount || 0), successCount + failureCount, Number(task.imageCount || 0)),
+    count: successCount,
+    failures,
+    errorMessage: message,
+    reportFile: reportFile || parsed.reportFile || '',
+  };
 }
 
 function stopTask() {
