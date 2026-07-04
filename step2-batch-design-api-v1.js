@@ -359,76 +359,109 @@ function writeProgressReport(args, template, successes, failures) {
   });
 }
 
+function writeFailureReport(args, error, successes = [], failures = [], template = null, totalCount = 0) {
+  const message = error && error.message ? error.message : String(error || '第二步失败');
+  const finalFailures = failures.length ? failures : [{ error: message }];
+  saveReport(args.reportFile, {
+    step: 'step2',
+    ok: false,
+    failed: true,
+    tag: args.tag || '',
+    templateName: args.templateName || '',
+    templateId: template?.id || '',
+    maximizeDesign: !!args.maximizeDesign,
+    successes,
+    failures: finalFailures,
+    errorMessage: message,
+    summary: {
+      successCount: successes.length,
+      failureCount: finalFailures.length,
+      totalCount: Math.max(Number(totalCount || 0), successes.length + finalFailures.length),
+    },
+    updatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+  });
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.tag) throw new Error('缺少 --tag');
   if (!args.templateName) throw new Error('缺少 --template-name');
 
-  const auth = loadAuth();
   const successes = [];
   const failures = [];
-  log(`开始第二步，标签: ${args.tag}`);
-  log(`公版名称: ${args.templateName}`);
-  log(`最大化设计: ${args.maximizeDesign ? '是' : '否'}`);
+  let images = [];
+  let template = null;
 
-  const images = await searchImagesByTag(args.tag, auth);
-  if (!images.length) {
-    throw new Error(`未找到标签为 ${args.tag} 的主题图`);
-  }
-  log(`主题图数量: ${images.length}`);
+  try {
+    const auth = loadAuth();
+    log(`开始第二步，标签: ${args.tag}`);
+    log(`公版名称: ${args.templateName}`);
+    log(`最大化设计: ${args.maximizeDesign ? '是' : '否'}`);
 
-  const template = await searchTemplateByName(args.templateName, auth);
-  if (!template) {
-    throw new Error(`未找到公版: ${args.templateName}`);
-  }
-  log('已找到公版', { id: template.id, code: template.code, name: template.name_zh || template.name });
+    images = await searchImagesByTag(args.tag, auth);
+    if (!images.length) {
+      throw new Error(`未找到标签为 ${args.tag} 的主题图`);
+    }
+    log(`主题图数量: ${images.length}`);
 
-  const templateInfo = await getTemplateInfo(template.code, auth);
-  await getNormalSizeColor(template.id, auth);
-  const defaultColorId = Number(templateInfo.defaultValues?.color || templateInfo.colors?.[0]?.id || 1);
-  const defaultViewId = Number(templateInfo.defaultValues?.view || 1);
-  const printArea = templateInfo.views?.find((item) => Number(item.id) === defaultViewId)?.printArea || {};
-  const printAreaWidth = Number(printArea.actual_width || printArea.width || DESIGN_AREA_WIDTH);
-  const printAreaHeight = Number(printArea.height || DESIGN_AREA_HEIGHT);
-  log('公版默认展示配置', {
-    defaultColorId,
-    defaultViewId,
-    printAreaWidth,
-    printAreaHeight,
-  });
+    template = await searchTemplateByName(args.templateName, auth);
+    if (!template) {
+      throw new Error(`未找到公版: ${args.templateName}`);
+    }
+    log('已找到公版', { id: template.id, code: template.code, name: template.name_zh || template.name });
 
-  for (let index = 0; index < images.length; index += 1) {
-    const image = images[index];
-    log(`合成第 ${index + 1}/${images.length} 张`, { imageId: image.id, title: image.title });
+    const templateInfo = await getTemplateInfo(template.code, auth);
+    await getNormalSizeColor(template.id, auth);
+    const defaultColorId = Number(templateInfo.defaultValues?.color || templateInfo.colors?.[0]?.id || 1);
+    const defaultViewId = Number(templateInfo.defaultValues?.view || 1);
+    const printArea = templateInfo.views?.find((item) => Number(item.id) === defaultViewId)?.printArea || {};
+    const printAreaWidth = Number(printArea.actual_width || printArea.width || DESIGN_AREA_WIDTH);
+    const printAreaHeight = Number(printArea.height || DESIGN_AREA_HEIGHT);
+    log('公版默认展示配置', {
+      defaultColorId,
+      defaultViewId,
+      printAreaWidth,
+      printAreaHeight,
+    });
 
-    try {
-      const designResult = await doDesignProductPic(template.id, image, auth, index, {
-        maximizeDesign: args.maximizeDesign,
-        defaultColorId,
-        defaultViewId,
-        printAreaWidth,
-        printAreaHeight,
-      });
-      const productId = pickProductId(designResult);
-      if (!productId) {
-        throw new Error(`第 ${index + 1} 张未拿到 productId: ${JSON.stringify(designResult)}`);
+    for (let index = 0; index < images.length; index += 1) {
+      const image = images[index];
+      log(`合成第 ${index + 1}/${images.length} 张`, { imageId: image.id, title: image.title });
+
+      try {
+        const designResult = await doDesignProductPic(template.id, image, auth, index, {
+          maximizeDesign: args.maximizeDesign,
+          defaultColorId,
+          defaultViewId,
+          printAreaWidth,
+          printAreaHeight,
+        });
+        const productId = pickProductId(designResult);
+        if (!productId) {
+          throw new Error(`第 ${index + 1} 张未拿到 productId: ${JSON.stringify(designResult)}`);
+        }
+        await saveTitleAndLabel(productId, auth, args.autoAssociation);
+        successes.push({
+          imageId: image.id,
+          imageTitle: image.title,
+          productId,
+        });
+      } catch (error) {
+        failures.push({
+          imageId: image.id,
+          imageTitle: image.title,
+          error: error.message || String(error),
+        });
+        log(`合成失败: ${image.title}`, { error: error.message || String(error) });
       }
-      await saveTitleAndLabel(productId, auth, args.autoAssociation);
-      successes.push({
-        imageId: image.id,
-        imageTitle: image.title,
-        productId,
-      });
-    } catch (error) {
-      failures.push({
-        imageId: image.id,
-        imageTitle: image.title,
-        error: error.message || String(error),
-      });
-      log(`合成失败: ${image.title}`, { error: error.message || String(error) });
+
+      writeProgressReport(args, template, successes, failures);
     }
 
     writeProgressReport(args, template, successes, failures);
+  } catch (error) {
+    writeFailureReport(args, error, successes, failures, template, images.length);
+    throw error;
   }
 
   writeProgressReport(args, template, successes, failures);

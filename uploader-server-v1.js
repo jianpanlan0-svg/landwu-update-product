@@ -1,4 +1,4 @@
-﻿const http = require('http');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
@@ -21,7 +21,7 @@ const REPORTS_DIR = path.join(RUNTIME_DIR, 'reports');
 
 const state = {
   appName: '领物TEMU上传器',
-  version: 'v2.1.6',
+  version: 'v2.1.7',
   running: false,
   stopRequested: false,
   currentTask: null,
@@ -1087,6 +1087,9 @@ function buildFailedStepResult(stepName, task, reportFile, message) {
   const failures = Array.isArray(parsed.failures) && parsed.failures.length
     ? parsed.failures
     : [{ error: message }];
+  const detailMessage = parsed.errorMessage
+    || failures.find((item) => item && item.error)?.error
+    || message;
 
   return {
     ...parsed,
@@ -1103,7 +1106,7 @@ function buildFailedStepResult(stepName, task, reportFile, message) {
     totalCount: Math.max(Number(parsed.totalCount || 0), successCount + failureCount, Number(task.imageCount || 0)),
     count: successCount,
     failures,
-    errorMessage: message,
+    errorMessage: detailMessage,
     reportFile: reportFile || parsed.reportFile || '',
   };
 }
