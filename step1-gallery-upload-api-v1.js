@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const ObsClient = require('esdk-obs-nodejs');
 
@@ -54,7 +54,7 @@ function parseArgs(argv) {
   if (!args.tag) {
     const now = new Date();
     const pad = (value) => String(value).padStart(2, '0');
-    args.tag = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
+    args.tag = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   }
   return args;
 }
