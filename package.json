@@ -1,6 +1,6 @@
 {
   "name": "uploader-v1",
-  "version": "2.1.8",
+  "version": "2.1.9",
   "private": true,
   "description": "领物TEMU上传器",
   "main": "electron-main.js",

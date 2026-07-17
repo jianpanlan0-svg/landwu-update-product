@@ -7,6 +7,8 @@ const DESIGN_AREA_WIDTH = 100;
 const DESIGN_AREA_HEIGHT = 56.06468400000001;
 const PRINT_DPI = 300;
 const MM_PER_INCH = 25.4;
+const REQUEST_RETRY_COUNT = 1;
+const REQUEST_RETRY_DELAY_MS = 1200;
 
 function parseArgs(argv) {
   const args = {
@@ -65,6 +67,18 @@ function saveReport(reportFile, data) {
   fs.writeFileSync(reportFile, JSON.stringify(data, null, 2), 'utf8');
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function safeUrl(url) {
+  return String(url || '').replace(/([?&]api_token=)[^&]+/gi, '$1***');
+}
+
+function compactPreview(text, maxLength = 180) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
 function buildHeaders(auth, includeCookie = true) {
   const headers = {
     'content-type': 'application/json;charset=UTF-8',
@@ -83,8 +97,41 @@ function buildHeaders(auth, includeCookie = true) {
   return headers;
 }
 
+async function parseJsonResponse(response, url) {
+  const text = await response.text();
+  let json;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`${safeUrl(url)} 返回非 JSON，HTTP ${response.status}: ${compactPreview(text)}`);
+  }
+  if (!response.ok || json.code !== 1) {
+    throw new Error(`${safeUrl(url)} 请求失败，HTTP ${response.status}: ${compactPreview(JSON.stringify(json))}`);
+  }
+  return json;
+}
+
+async function requestWithRetry(url, fetchOptions, label) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= REQUEST_RETRY_COUNT + 1; attempt += 1) {
+    try {
+      const response = await fetch(url, fetchOptions);
+      return await parseJsonResponse(response, url);
+    } catch (error) {
+      lastError = error;
+      if (attempt > REQUEST_RETRY_COUNT) break;
+      log(`${label || '接口请求'}失败，${REQUEST_RETRY_DELAY_MS}ms 后自动重试 1 次`, {
+        url: safeUrl(url),
+        error: error.message || String(error),
+      });
+      await sleep(REQUEST_RETRY_DELAY_MS);
+    }
+  }
+  throw lastError;
+}
+
 async function requestJson(url, body, auth, includeCookie = true) {
-  const response = await fetch(url, {
+  return requestWithRetry(url, {
     method: 'POST',
     headers: buildHeaders(auth, includeCookie),
     body: JSON.stringify({
@@ -92,24 +139,14 @@ async function requestJson(url, body, auth, includeCookie = true) {
       lange: 'zh',
       api_token: auth.token,
     }),
-  });
-  const json = await response.json();
-  if (!response.ok || json.code !== 1) {
-    throw new Error(`${url} 请求失败: ${JSON.stringify(json)}`);
-  }
-  return json;
+  }, '第二步接口');
 }
 
 async function requestGetJson(url, auth) {
-  const response = await fetch(url, {
+  return requestWithRetry(url, {
     method: 'GET',
     headers: buildHeaders(auth, true),
-  });
-  const json = await response.json();
-  if (!response.ok || json.code !== 1) {
-    throw new Error(`${url} 请求失败: ${JSON.stringify(json)}`);
-  }
-  return json;
+  }, '第二步接口');
 }
 
 function toAbsoluteUrl(value) {
