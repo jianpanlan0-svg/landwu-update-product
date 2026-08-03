@@ -3,6 +3,8 @@ const path = require('path');
 
 const RUNTIME_DIR = process.env.LANDWU_RUNTIME_DIR || (process.pkg ? path.dirname(process.execPath) : __dirname);
 const AUTH_FILE = path.join(RUNTIME_DIR, 'auth-state-v1.json');
+const REQUEST_RETRY_COUNT = 1;
+const REQUEST_RETRY_DELAY_MS = 1200;
 
 function parseArgs(argv) {
   const args = {
@@ -61,6 +63,18 @@ function saveReport(reportFile, data) {
   fs.writeFileSync(reportFile, JSON.stringify(data, null, 2), 'utf8');
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function safeUrl(url) {
+  return String(url || '').replace(/([?&]api_token=)[^&]+/gi, '$1***');
+}
+
+function compactPreview(text, maxLength = 220) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
 function buildHeaders(auth, referer = 'https://user.landwu.com/#/Producet/temu', includeCookie = true) {
   const headers = {
     'content-type': 'application/json;charset=UTF-8',
@@ -79,27 +93,46 @@ function buildHeaders(auth, referer = 'https://user.landwu.com/#/Producet/temu',
   return headers;
 }
 
-async function requestJson(url, body, auth, options = {}) {
-  const response = await fetch(url, {
-    method: options.method || 'POST',
-    headers: buildHeaders(auth, options.referer, options.includeCookie !== false),
-    body: JSON.stringify({
-      ...body,
-      lange: 'zh',
-      api_token: auth.token,
-    }),
-  });
+async function parseJsonResponse(response, url) {
   const text = await response.text();
   let json;
   try {
-    json = JSON.parse(text);
+    json = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`${url} 返回非 JSON: ${text.slice(0, 300)}`);
+    throw new Error(`${safeUrl(url)} 返回非 JSON，HTTP ${response.status}: ${compactPreview(text)}`);
   }
   if (!response.ok || json.code !== 1) {
-    throw new Error(`${url} 请求失败: ${JSON.stringify(json)}`);
+    throw new Error(`${safeUrl(url)} 请求失败，HTTP ${response.status}: ${compactPreview(JSON.stringify(json))}`);
   }
   return json;
+}
+
+async function requestJson(url, body, auth, options = {}) {
+  const retryCount = Number.isFinite(options.retryCount) ? Number(options.retryCount) : REQUEST_RETRY_COUNT;
+  let lastError = null;
+  for (let attempt = 1; attempt <= retryCount + 1; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: options.method || 'POST',
+        headers: buildHeaders(auth, options.referer, options.includeCookie !== false),
+        body: JSON.stringify({
+          ...body,
+          lange: 'zh',
+          api_token: auth.token,
+        }),
+      });
+      return await parseJsonResponse(response, url);
+    } catch (error) {
+      lastError = error;
+      if (attempt > retryCount) break;
+      log(`第三步接口失败，${REQUEST_RETRY_DELAY_MS}ms 后自动重试 1 次`, {
+        url: safeUrl(url),
+        error: error.message || String(error),
+      });
+      await sleep(REQUEST_RETRY_DELAY_MS);
+    }
+  }
+  throw lastError;
 }
 
 function parseJsonField(value, fallback) {
@@ -268,6 +301,40 @@ function writeProgressReport(args, templateItem, skc, successes, failures) {
     summary: {
       successCount: successes.length,
       failureCount: failures.length,
+      totalCount: successes.length + failures.length,
+    },
+    updatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+  });
+}
+
+function writeFailureReport(args, templateItem, skc, successes, failures, products, error) {
+  const message = error && error.message ? error.message : String(error || '第三步失败');
+  const finalFailures = failures.length
+    ? failures
+    : (products.length
+      ? products.map((product) => ({
+        productId: product.id,
+        title: product.title || '',
+        designProductId: product.design_product_id || '',
+        error: message,
+      }))
+      : [{ error: message }]);
+  saveReport(args.reportFile, {
+    step: 'step3',
+    ok: false,
+    failed: true,
+    tag: args.tag || '',
+    shopName: args.shopName || '',
+    templateName: args.templateName || '',
+    templateId: templateItem?.id || '',
+    skc,
+    successes,
+    failures: finalFailures,
+    errorMessage: message,
+    summary: {
+      successCount: successes.length,
+      failureCount: finalFailures.length,
+      totalCount: Math.max(products.length, successes.length + finalFailures.length),
     },
     updatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
   });
@@ -275,53 +342,57 @@ function writeProgressReport(args, templateItem, skc, successes, failures) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (!args.tag) throw new Error('缺少 --tag');
-  if (!args.shopName) throw new Error('缺少 --shop-name');
-  if (!args.templateName) throw new Error('缺少 --template-name');
-
-  const auth = loadAuth();
   const successes = [];
   const failures = [];
-  const skc = args.skc || buildSkcByShop(args.shopName);
-
-  log(`开始第三步，标签: ${args.tag}`);
-  log(`店铺: ${args.shopName}`);
-  log(`模板: ${args.templateName}`);
-  log(`SKC: ${skc}`);
-
-  const allProducts = await getProductListByTag(args.tag, auth);
-  if (!allProducts.length) {
-    throw new Error(`未找到标签为 ${args.tag} 的成品`);
-  }
-  log(`已找到成品 ${allProducts.length} 个`);
-
-  const products = [...allProducts];
-
-  const shops = await getShopList(auth);
-  const shop = shops.find((item) => item.name === args.shopName);
-  if (!shop) {
-    throw new Error(`未找到店铺: ${args.shopName}`);
-  }
-  log('已找到店铺', { shopId: shop.id, shopName: shop.name });
-
-  const templateList = await getTemplateList(shop.id, auth);
-  const targetTemplateName = normalizeTemplateName(args.templateName);
-  const templateItem = templateList.find((item) => normalizeTemplateName(item.template_name) === targetTemplateName);
-  if (!templateItem) {
-    throw new Error(`未找到模板: ${args.templateName}`);
-  }
-  log('已找到模板', { templateId: templateItem.id, templateName: templateItem.template_name });
-
-  const templateRecord = await getTemplateRecord(templateItem.id, auth);
-  const payload = buildPayload({
-    products,
-    shop,
-    templateItem: clone(templateItem),
-    templateRecord: clone(templateRecord),
-    skc,
-  });
+  let skc = args.skc || '';
+  let products = [];
+  let templateItem = null;
 
   try {
+    if (!args.tag) throw new Error('缺少 --tag');
+    if (!args.shopName) throw new Error('缺少 --shop-name');
+    if (!args.templateName) throw new Error('缺少 --template-name');
+    if (!skc) skc = buildSkcByShop(args.shopName);
+
+    const auth = loadAuth();
+
+    log(`开始第三步，标签: ${args.tag}`);
+    log(`店铺: ${args.shopName}`);
+    log(`模板: ${args.templateName}`);
+    log(`SKC: ${skc}`);
+
+    const allProducts = await getProductListByTag(args.tag, auth);
+    if (!allProducts.length) {
+      throw new Error(`未找到标签为 ${args.tag} 的成品`);
+    }
+    log(`已找到成品 ${allProducts.length} 个`);
+
+    products = [...allProducts];
+
+    const shops = await getShopList(auth);
+    const shop = shops.find((item) => item.name === args.shopName);
+    if (!shop) {
+      throw new Error(`未找到店铺: ${args.shopName}`);
+    }
+    log('已找到店铺', { shopId: shop.id, shopName: shop.name });
+
+    const templateList = await getTemplateList(shop.id, auth);
+    const targetTemplateName = normalizeTemplateName(args.templateName);
+    templateItem = templateList.find((item) => normalizeTemplateName(item.template_name) === targetTemplateName);
+    if (!templateItem) {
+      throw new Error(`未找到模板: ${args.templateName}`);
+    }
+    log('已找到模板', { templateId: templateItem.id, templateName: templateItem.template_name });
+
+    const templateRecord = await getTemplateRecord(templateItem.id, auth);
+    const payload = buildPayload({
+      products,
+      shop,
+      templateItem: clone(templateItem),
+      templateRecord: clone(templateRecord),
+      skc,
+    });
+
     await saveTemplateRecord(payload, auth);
     log('模板记录已保存');
 
@@ -354,14 +425,7 @@ async function main() {
       failures,
     })}`);
   } catch (error) {
-    for (const product of products) {
-      failures.push({
-        productId: product.id,
-        title: product.title || '',
-        error: error.message || String(error),
-      });
-    }
-    writeProgressReport(args, templateItem, skc, successes, failures);
+    writeFailureReport(args, templateItem, skc, successes, failures, products, error);
     throw error;
   }
 }

@@ -21,7 +21,7 @@ const REPORTS_DIR = path.join(RUNTIME_DIR, 'reports');
 
 const state = {
   appName: '领物TEMU上传器',
-  version: 'v2.1.9',
+  version: 'v2.1.10',
   running: false,
   stopRequested: false,
   currentTask: null,
@@ -820,7 +820,10 @@ function startSingleTask(task, mode, parseLine, script, args, successMessage, fi
         stopTask();
         return;
       }
-      finishTaskError(error.message || String(error));
+      const message = error.message || String(error);
+      const reportFile = task.reportFiles && task.reportFiles[mode];
+      const failedResult = buildFailedStepResult(mode, task, reportFile, message);
+      finishTaskError(failedResult.errorMessage || message, failedResult);
     });
 }
 
@@ -1065,6 +1068,8 @@ function parseReportResult(reportFile) {
       failureCount: Number(report.summary?.failureCount || 0),
       totalCount: Number(report.summary?.totalCount || 0),
       count: Number(report.summary?.successCount || 0),
+      failed: !!report.failed,
+      errorMessage: report.errorMessage || '',
       failureDir: report.failureDir || '',
       failures: Array.isArray(report.failures) ? report.failures : [],
       folderMarked: !!report.folderMark?.folderMarked,
