@@ -12,5 +12,7 @@ debug.log
 
 tmp-*.js
 
+.workbuddy/
+
 .DS_Store
 Thumbs.db

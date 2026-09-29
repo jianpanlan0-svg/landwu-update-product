@@ -455,6 +455,20 @@ select:focus {
   cursor: pointer;
 }
 
+.queue-retry-btn {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(59,130,246,0.35);
+  border-radius: 6px;
+  background: rgba(59,130,246,0.12);
+  color: #93c5fd;
+  cursor: pointer;
+}
+
+.queue-retry-btn:hover {
+  background: rgba(59,130,246,0.22);
+}
+
 .queue-meta {
   margin-top: 4px;
   font-size: 12px;
