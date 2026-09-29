@@ -36,7 +36,10 @@ jobs:
           node --check step1-gallery-upload-api-v1.js
           node --check step2-batch-design-api-v1.js
           node --check step3-temu-export-api-v1.js
-          node --check ui/app-v26.js
+          Get-ChildItem ui/app-v*.js | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "语法检查失败: $($_.Name)" }
+          }
 
       - name: Build EXE
         run: npm run build:exe
@@ -79,7 +82,7 @@ jobs:
           node --check step1-gallery-upload-api-v1.js
           node --check step2-batch-design-api-v1.js
           node --check step3-temu-export-api-v1.js
-          node --check ui/app-v26.js
+          for f in ui/app-v*.js; do node --check "$f"; done
 
       - name: Build Mac app
         run: npm run build:mac
