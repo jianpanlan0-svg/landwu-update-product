@@ -6,7 +6,7 @@
 - 修改前先备份关键文件到 `D:\临时备份`。
 - 不要提交本地敏感文件：`auth-state-v1.json`、`obs-config.json`、`reports/`、`node_modules/`、`dist/`、`.workbuddy/`。
 - OBS 密钥只能从 `obs-config.json` 或环境变量 `LANDWU_OBS_SECRET_ACCESS_KEY` 读取，不要写死到源码。
-- 当前前端入口是 `ui/index.html`，当前运行脚本是 `ui/app-v27.js`。
+- 当前前端入口是 `ui/index.html`，当前运行脚本是 `ui/app-v28.js`。
 - 三步核心脚本分别是 `step1-gallery-upload-api-v1.js`、`step2-batch-design-api-v1.js`、`step3-temu-export-api-v1.js`。
 - 修改网页脚本时如需保留历史版本，新文件名带版本号，并同步 `ui/index.html` 引用。
 - 改完 `uploader-server-v1.js` 或 `ui/` 下任何文件后，本地服务进程必须重启，否则改动不生效；用 `curl -s http://127.0.0.1:18321/api/status` 的 `version` 字段校验当前生效版本。`running: true` 时重启会打断正在执行的任务。

@@ -21,7 +21,7 @@ const REPORTS_DIR = path.join(RUNTIME_DIR, 'reports');
 
 const state = {
   appName: '领物TEMU上传器',
-  version: 'v2.1.11',
+  version: 'v2.1.12',
   running: false,
   stopRequested: false,
   currentTask: null,
@@ -539,7 +539,15 @@ const parseStep1Line = createLineParser('STEP1-API', (message) => {
     setTaskProgress('读取图片完成', 20);
     setTaskMetrics({ total, current: 0, completed: 0, action: '正在准备上传图片', unit: '张' });
   }
-  else if (message.includes('上传第')) {
+  else if (message.includes('图库容量已用完') || message.includes('仍在等待图库容量释放') || message.includes('容量重试：')) {
+    // 图库容量用完会暂停上传并自动重试，这里只更新阶段，进度保持不变。
+    const waited = message.match(/已等\s*(\d+)\s*秒/);
+    const round = message.match(/第\s*(\d+)\s*轮/);
+    const roundText = round ? `（第 ${round[1]} 轮）` : '';
+    const stage = waited ? `等待释放容量${roundText}，已等 ${waited[1]} 秒` : `等待释放容量${roundText}`;
+    setTaskProgress(stage, state.currentTask?.progress || 0);
+    setTaskMetrics({ action: '图库容量不足，已暂停上传，正在等待释放容量（可去图库删图，腾出后会自动继续）' });
+  } else if (message.includes('上传第')) {
     const match = message.match(/上传第\s*(\d+)\/(\d+)/);
     if (match) {
       const current = Number(match[1]);
@@ -797,6 +805,7 @@ function runScript(script, args, parseLine) {
 function startSingleTask(task, mode, parseLine, script, args, successMessage, finalizeResult = null) {
   state.running = true;
   state.stopRequested = false;
+  global.__LANDWU_STOP_REQUESTED__ = false;
   state.lastResult = null;
   state.currentTask = {
     ...task,
@@ -927,6 +936,7 @@ async function startPipelineTask(task) {
   }
   state.running = true;
   state.stopRequested = false;
+  global.__LANDWU_STOP_REQUESTED__ = false;
   state.lastResult = null;
   state.currentTask = {
     ...task,
@@ -1118,6 +1128,8 @@ function buildFailedStepResult(stepName, task, reportFile, message) {
 
 function stopTask() {
   state.stopRequested = true;
+  // 打包成 EXE 时步骤脚本在同进程内运行，没有子进程可杀，用它来打断容量等待这类长循环。
+  global.__LANDWU_STOP_REQUESTED__ = true;
   if (state.child && !state.child.killed) {
     state.child.kill();
   }

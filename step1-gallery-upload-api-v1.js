@@ -6,6 +6,10 @@ const RUNTIME_DIR = process.env.LANDWU_RUNTIME_DIR || (process.pkg ? path.dirnam
 const OBS_CONFIG_FILE = path.join(RUNTIME_DIR, 'obs-config.json');
 const MAX_UPLOAD_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 1500;
+// 图库容量用完不是失败，是账号侧的资源限制。遇到就地暂停，等用户去删图释放容量后自动继续。
+const CAPACITY_WAIT_MS = Math.max(5000, Number(process.env.LANDWU_CAPACITY_WAIT_MS || 60000));
+const CAPACITY_WAIT_HEARTBEAT_MS = 30000;
+const CAPACITY_ERROR_PATTERN = /工厂容量已使用完|容量已使用完|容量已用完|容量不足/;
 
 function loadObsSecretAccessKey() {
   const envValue = String(process.env.LANDWU_OBS_SECRET_ACCESS_KEY || '').trim();
@@ -69,6 +73,46 @@ function log(message, extra) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isCapacityError(message) {
+  return CAPACITY_ERROR_PATTERN.test(String(message || ''));
+}
+
+function isStopRequested() {
+  return Boolean(globalThis.__LANDWU_STOP_REQUESTED__);
+}
+
+// 容量用完时原地等待，不消耗上传重试次数，也不把这一张记成失败。
+async function waitForCapacity(round, context = {}) {
+  const waitSeconds = Math.round(CAPACITY_WAIT_MS / 1000);
+  const startedAt = Date.now();
+  const deadline = startedAt + CAPACITY_WAIT_MS;
+  let nextHeartbeat = startedAt + CAPACITY_WAIT_HEARTBEAT_MS;
+  log(`图库容量已用完，暂停上传，等待释放容量（第 ${round} 轮，${waitSeconds} 秒后自动重试）`, context);
+  while (Date.now() < deadline) {
+    if (isStopRequested()) throw new Error('任务已停止（正在等待图库容量释放）');
+    await sleep(Math.max(0, Math.min(2000, deadline - Date.now())));
+    if (Date.now() >= nextHeartbeat && Date.now() < deadline) {
+      log(`仍在等待图库容量释放（第 ${round} 轮，已等 ${Math.round((Date.now() - startedAt) / 1000)} 秒）`, context);
+      nextHeartbeat = Date.now() + CAPACITY_WAIT_HEARTBEAT_MS;
+    }
+  }
+  if (isStopRequested()) throw new Error('任务已停止（正在等待图库容量释放）');
+  log(`容量重试：重新尝试上传（第 ${round} 轮）`, context);
+}
+
+async function requestJsonAwaitingCapacity(url, body, args, includeCookie = true, context = {}) {
+  let round = 0;
+  for (;;) {
+    try {
+      return await requestJson(url, body, args, includeCookie);
+    } catch (error) {
+      if (!isCapacityError(error && error.message)) throw error;
+      round += 1;
+      await waitForCapacity(round, context);
+    }
+  }
 }
 
 function ensureAuth(args) {
@@ -279,16 +323,16 @@ async function uploadOneFile(options) {
 
     try {
       if (!args.dryRun) {
-        await requestJson('https://user.landwu.com/api/photo/jsLoadBefore', {}, args);
+        await requestJsonAwaitingCapacity('https://user.landwu.com/api/photo/jsLoadBefore', {}, args, true, { title, index, total });
         await uploadToObs(obsClient, obsInfo.bucket, fileKey, filePath, getMimeType(filePath));
-        await requestJson(new URL('photo/jsLoad', apiBase).toString(), {
+        await requestJsonAwaitingCapacity(new URL('photo/jsLoad', apiBase).toString(), {
           title,
           label: args.tag,
           category_id: '',
           category_name: '',
           cur_index: index + 1,
           obs_url: obsUrl,
-        }, args, false);
+        }, args, false, { title, index, total });
       }
       return { title, label: args.tag, obs_url: obsUrl, filePath, attempts: attempt, retryErrors };
     } catch (error) {
@@ -316,10 +360,11 @@ async function main() {
   const failures = [];
   log(`开始批量上传，标签: ${args.tag}`);
   log(`图片数量: ${files.length}`);
+  log(`容量保护已开启：遇到「工厂容量已使用完」会暂停上传，每 ${Math.round(CAPACITY_WAIT_MS / 1000)} 秒自动重试，不消耗上传重试次数`);
 
-  const uploadInfo = await requestJson('https://user.landwu.com/api/photo/jsUseUpload', { type: 1 }, args);
-  await requestJson('https://user.landwu.com/api/photo/jsLoadBefore', {}, args);
-  const urlInfo = await requestJson('https://user.landwu.com/api/photo/getUploadUrl', {}, args);
+  const uploadInfo = await requestJsonAwaitingCapacity('https://user.landwu.com/api/photo/jsUseUpload', { type: 1 }, args);
+  await requestJsonAwaitingCapacity('https://user.landwu.com/api/photo/jsLoadBefore', {}, args);
+  const urlInfo = await requestJsonAwaitingCapacity('https://user.landwu.com/api/photo/getUploadUrl', {}, args);
 
   const obsInfo = uploadInfo.data || {};
   const apiBase = normalizeApiBase(urlInfo.data && urlInfo.data.url);

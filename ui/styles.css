@@ -445,6 +445,20 @@ select:focus {
 .queue-status.is-done { background: rgba(16,185,129,0.15); color: #6ee7b7; }
 .queue-status.is-failed { background: rgba(239,68,68,0.15); color: #fca5a5; }
 
+.queue-stage-hint {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+  animation: queue-stage-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes queue-stage-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
 .queue-delete-btn {
   height: 26px;
   padding: 0 8px;
